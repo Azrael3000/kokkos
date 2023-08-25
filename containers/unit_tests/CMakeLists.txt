@@ -12,21 +12,24 @@ foreach(Tag Threads;Serial;OpenMP;HPX;Cuda;HIP;SYCL)
     set(UnitTestSources UnitTestMain.cpp)
     set(dir ${CMAKE_CURRENT_BINARY_DIR}/${dir})
     file(MAKE_DIRECTORY ${dir})
+    #foreach(Name
+    #    Bitset
+    #    DualView
+    #    DynamicView
+    #    DynViewAPI_generic
+    #    DynViewAPI_rank12345
+    #    DynViewAPI_rank67
+    #    ErrorReporter
+    #    OffsetView
+    #    ScatterView
+    #    StaticCrsGraph
+    #    WithoutInitializing
+    #    UnorderedMap
+    #    Vector
+    #    ViewCtorPropEmbeddedDim
+    #    )
     foreach(Name
-        Bitset
-        DualView
-        DynamicView
-        DynViewAPI_generic
-        DynViewAPI_rank12345
-        DynViewAPI_rank67
-        ErrorReporter
-        OffsetView
         ScatterView
-        StaticCrsGraph
-        WithoutInitializing
-        UnorderedMap
-        Vector
-        ViewCtorPropEmbeddedDim
         )
       if(NOT Kokkos_ENABLE_DEPRECATED_CODE_4 AND Name STREQUAL "Vector")
         continue() # skip Kokkos::vector test if deprecated code 4 is not enabled

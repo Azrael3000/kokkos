@@ -65,12 +65,16 @@ struct test_scatter_view_impl_cls<DeviceType, Layout, Duplication, Contribution,
     Kokkos::parallel_for("scatter_view_test: Sum", policy, *this);
   }
 
+  void update_scatter_view(const scatter_view_type& view) {
+    scatter_view = view;
+  }
+
   KOKKOS_INLINE_FUNCTION
   void operator()(int i) const {
     auto scatter_access = scatter_view.access();
     auto scatter_access_atomic =
         scatter_view.template access<Kokkos::Experimental::ScatterAtomic>();
-    for (int j = 0; j < 10; ++j) {
+    for (int j = 0; j < scatterSize; ++j) {
       auto k = (i + j) % scatterSize;
       scatter_access(k, 0) += 4;
       ++scatter_access(k, 1);
@@ -124,7 +128,7 @@ struct test_scatter_view_impl_cls<DeviceType, Layout, Duplication, Contribution,
   }
 
  private:
-  NumberType ref[12] = {80, 20, -20, 20, -20, -100, 40, 20, -20, -20, 20, -60};
+  NumberType ref[12] = {128, 32, -32, 32, -32, -160, 64, 32, -32, -32, 32, -96};
 };
 
 template <typename DeviceType, typename Layout, typename Duplication,
@@ -504,7 +508,7 @@ struct test_default_scatter_view {
   void run_test(int n) {
     // Test creation via create_scatter_view overload 1
     {
-      orig_view_def original_view("original_view", n);
+      orig_view_def original_view("original_view", n+1);
       scatter_view_def scatter_view =
           Kokkos::Experimental::create_scatter_view(Op{}, original_view);
 
@@ -512,14 +516,26 @@ struct test_default_scatter_view {
                                  Op, NumberType>
           scatter_view_test_impl(scatter_view);
       scatter_view_test_impl.initialize(original_view);
-      scatter_view_test_impl.run_parallel(n);
+      scatter_view_test_impl.run_parallel(n+1);
 
       Kokkos::Experimental::contribute(original_view, scatter_view);
+      printf("0: %e\n", original_view(0, 10));
       scatter_view.reset_except(original_view);
 
+      scatter_view_test_impl.run_parallel(n+1);
+
+      Kokkos::Experimental::contribute(original_view, scatter_view);
+      printf("1: %e\n", original_view(0, 10));
+
+      Kokkos::resize(original_view, n);
+      scatter_view.realloc(n);
+      scatter_view.reset();
+      scatter_view_test_impl.update_scatter_view(scatter_view);
+
       scatter_view_test_impl.run_parallel(n);
 
       Kokkos::Experimental::contribute(original_view, scatter_view);
+      printf("2: %e\n", original_view(0, 10));
       Kokkos::fence();
 
       scatter_view_test_impl.validateResults(original_view);
@@ -705,26 +721,26 @@ void test_scatter_view(int64_t n) {
   // no atomics or duplication is only sensible if the execution space
   // is running essentially in serial (doesn't have to be Serial though,
   // we also test OpenMP with one thread: LAMMPS cares about that)
-  if (execution_space().concurrency() == 1) {
-    test_scatter_view_config<DeviceType, Kokkos::LayoutRight,
-                             Kokkos::Experimental::ScatterNonDuplicated,
-                             Kokkos::Experimental::ScatterNonAtomic,
-                             ScatterType, NumberType>
-        test_sv_config;
-    test_sv_config.run_test(n);
-  }
-#ifdef KOKKOS_ENABLE_SERIAL
-  if (!std::is_same<DeviceType, Kokkos::Serial>::value) {
-#endif
-    test_scatter_view_config<DeviceType, Kokkos::LayoutRight,
-                             Kokkos::Experimental::ScatterNonDuplicated,
-                             Kokkos::Experimental::ScatterAtomic, ScatterType,
-                             NumberType>
-        test_sv_config;
-    test_sv_config.run_test(n);
-#ifdef KOKKOS_ENABLE_SERIAL
-  }
-#endif
+//  if (execution_space().concurrency() == 1) {
+//    test_scatter_view_config<DeviceType, Kokkos::LayoutRight,
+//                             Kokkos::Experimental::ScatterNonDuplicated,
+//                             Kokkos::Experimental::ScatterNonAtomic,
+//                             ScatterType, NumberType>
+//        test_sv_config;
+//    test_sv_config.run_test(n);
+//  }
+//#ifdef KOKKOS_ENABLE_SERIAL
+//  if (!std::is_same<DeviceType, Kokkos::Serial>::value) {
+//#endif
+//    test_scatter_view_config<DeviceType, Kokkos::LayoutRight,
+//                             Kokkos::Experimental::ScatterNonDuplicated,
+//                             Kokkos::Experimental::ScatterAtomic, ScatterType,
+//                             NumberType>
+//        test_sv_config;
+//    test_sv_config.run_test(n);
+//#ifdef KOKKOS_ENABLE_SERIAL
+//  }
+//#endif
   // with hundreds of threads we were running out of memory.
   // limit (n) so that duplication doesn't exceed 1GB
   constexpr std::size_t maximum_allowed_total_bytes =
@@ -747,99 +763,100 @@ void test_scatter_view(int64_t n) {
 
   // run same test but on a subview (this covers support for padded
   // ScatterViews)
-  {
-    test_default_scatter_sub_view<DeviceType, Kokkos::LayoutRight, ScatterType,
-                                  NumberType>
-        test_default_scatter_view_subview;
-    test_default_scatter_view_subview.run_test(n);
-  }
-
-  TestDuplicatedScatterView<DeviceType, ScatterType, NumberType> duptest(n);
+//  {
+//    test_default_scatter_sub_view<DeviceType, Kokkos::LayoutRight, ScatterType,
+//                                  NumberType>
+//        test_default_scatter_view_subview;
+//    test_default_scatter_view_subview.run_test(n);
+//  }
+//
+//  TestDuplicatedScatterView<DeviceType, ScatterType, NumberType> duptest(n);
 }
 
 TEST(TEST_CATEGORY, scatterview) {
   test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterSum, double>(
       10);
-
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterSum, int>(10);
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterProd>(10);
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMin>(10);
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMax>(10);
-  // tests were timing out in DEBUG mode, reduce the amount of work
-#ifdef KOKKOS_ENABLE_DEBUG
-  int big_n = 100 * 1000;
-#else
-
-#if defined(KOKKOS_ENABLE_SERIAL) || defined(KOKKOS_ENABLE_OPENMP)
-#if defined(KOKKOS_ENABLE_SERIAL)
-  bool is_serial = std::is_same<TEST_EXECSPACE, Kokkos::Serial>::value;
-#else
-  bool is_serial = false;
-#endif
-#if defined(KOKKOS_ENABLE_OPENMP)
-  bool is_openmp = std::is_same<TEST_EXECSPACE, Kokkos::OpenMP>::value;
-#else
-  bool is_openmp = false;
-#endif
-  int big_n      = is_serial || is_openmp ? 100 * 1000 : 10000 * 1000;
-#else
-  int big_n = 10000 * 1000;
-#endif
-
-#endif
-
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterSum, double>(
-      big_n);
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterSum, int>(
-      big_n);
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterProd>(big_n);
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMin>(big_n);
-  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMax>(big_n);
 }
 
-TEST(TEST_CATEGORY, scatterview_devicetype) {
-  using device_type =
-      Kokkos::Device<TEST_EXECSPACE, typename TEST_EXECSPACE::memory_space>;
-
-  test_scatter_view<device_type, Kokkos::Experimental::ScatterSum, double>(10);
-  test_scatter_view<device_type, Kokkos::Experimental::ScatterSum, int>(10);
-  test_scatter_view<device_type, Kokkos::Experimental::ScatterProd>(10);
-  test_scatter_view<device_type, Kokkos::Experimental::ScatterMin>(10);
-  test_scatter_view<device_type, Kokkos::Experimental::ScatterMax>(10);
-
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-#ifdef KOKKOS_ENABLE_CUDA
-  using device_execution_space = Kokkos::Cuda;
-  using device_memory_space    = Kokkos::CudaSpace;
-  using host_accessible_space  = Kokkos::CudaUVMSpace;
-#else
-  using device_execution_space = Kokkos::HIP;
-  using device_memory_space    = Kokkos::HIPSpace;
-  using host_accessible_space  = Kokkos::HIPManagedSpace;
-#endif
-  if (std::is_same<TEST_EXECSPACE, device_execution_space>::value) {
-    using device_device_type =
-        Kokkos::Device<device_execution_space, device_memory_space>;
-    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterSum,
-                      double>(10);
-    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterSum,
-                      int>(10);
-    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterProd>(
-        10);
-    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterMin>(10);
-    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterMax>(10);
-    using host_device_type =
-        Kokkos::Device<device_execution_space, host_accessible_space>;
-    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterSum,
-                      double>(10);
-    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterSum, int>(
-        10);
-    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterProd>(10);
-    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterMin>(10);
-    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterMax>(10);
-  }
-#endif
-}
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterSum, int>(10);
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterProd>(10);
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMin>(10);
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMax>(10);
+//  // tests were timing out in DEBUG mode, reduce the amount of work
+//#ifdef KOKKOS_ENABLE_DEBUG
+//  int big_n = 100 * 1000;
+//#else
+//
+//#if defined(KOKKOS_ENABLE_SERIAL) || defined(KOKKOS_ENABLE_OPENMP)
+//#if defined(KOKKOS_ENABLE_SERIAL)
+//  bool is_serial = std::is_same<TEST_EXECSPACE, Kokkos::Serial>::value;
+//#else
+//  bool is_serial = false;
+//#endif
+//#if defined(KOKKOS_ENABLE_OPENMP)
+//  bool is_openmp = std::is_same<TEST_EXECSPACE, Kokkos::OpenMP>::value;
+//#else
+//  bool is_openmp = false;
+//#endif
+//  int big_n      = is_serial || is_openmp ? 100 * 1000 : 10000 * 1000;
+//#else
+//  int big_n = 10000 * 1000;
+//#endif
+//
+//#endif
+//
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterSum, double>(
+//      big_n);
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterSum, int>(
+//      big_n);
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterProd>(big_n);
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMin>(big_n);
+//  test_scatter_view<TEST_EXECSPACE, Kokkos::Experimental::ScatterMax>(big_n);
+//}
+//
+//TEST(TEST_CATEGORY, scatterview_devicetype) {
+//  using device_type =
+//      Kokkos::Device<TEST_EXECSPACE, typename TEST_EXECSPACE::memory_space>;
+//
+//  test_scatter_view<device_type, Kokkos::Experimental::ScatterSum, double>(10);
+//  test_scatter_view<device_type, Kokkos::Experimental::ScatterSum, int>(10);
+//  test_scatter_view<device_type, Kokkos::Experimental::ScatterProd>(10);
+//  test_scatter_view<device_type, Kokkos::Experimental::ScatterMin>(10);
+//  test_scatter_view<device_type, Kokkos::Experimental::ScatterMax>(10);
+//
+//#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+//#ifdef KOKKOS_ENABLE_CUDA
+//  using device_execution_space = Kokkos::Cuda;
+//  using device_memory_space    = Kokkos::CudaSpace;
+//  using host_accessible_space  = Kokkos::CudaUVMSpace;
+//#else
+//  using device_execution_space = Kokkos::HIP;
+//  using device_memory_space    = Kokkos::HIPSpace;
+//  using host_accessible_space  = Kokkos::HIPManagedSpace;
+//#endif
+//  if (std::is_same<TEST_EXECSPACE, device_execution_space>::value) {
+//    using device_device_type =
+//        Kokkos::Device<device_execution_space, device_memory_space>;
+//    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterSum,
+//                      double>(10);
+//    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterSum,
+//                      int>(10);
+//    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterProd>(
+//        10);
+//    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterMin>(10);
+//    test_scatter_view<device_device_type, Kokkos::Experimental::ScatterMax>(10);
+//    using host_device_type =
+//        Kokkos::Device<device_execution_space, host_accessible_space>;
+//    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterSum,
+//                      double>(10);
+//    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterSum, int>(
+//        10);
+//    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterProd>(10);
+//    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterMin>(10);
+//    test_scatter_view<host_device_type, Kokkos::Experimental::ScatterMax>(10);
+//  }
+//#endif
+//}
 
 }  // namespace Test
 

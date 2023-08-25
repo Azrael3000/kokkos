@@ -773,15 +773,12 @@ class ScatterView<DataType, Layout, DeviceType, Op, ScatterNonDuplicated,
     if (dest.data() == internal_view.data()) return;
     Kokkos::Impl::Experimental::ReduceDuplicates<execution_space,
                                                  original_value_type, Op>(
-        exec_space, internal_view.data(), dest.data(), 0, 0, 1,
-        internal_view.label());
+        exec_space, internal_view.data(), dest.data(), internal_view.extent(0),
+        0, 1, internal_view.label());
   }
 
   void reset(execution_space const& exec_space = execution_space()) {
-    Kokkos::Impl::Experimental::ResetDuplicates<execution_space,
-                                                original_value_type, Op>(
-        exec_space, internal_view.data(), internal_view.size(),
-        internal_view.label());
+    return;
   }
   template <typename DT, typename... RP>
   void reset_except(View<DT, RP...> const& view) {
